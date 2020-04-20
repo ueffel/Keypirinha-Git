@@ -17,6 +17,7 @@ class Git(kp.Plugin):
     COMMAND_GARBAGE_COLLECTION_ALL="gc_all"
     COMMAND_OPEN_GIT_BASH="open_git_bash"
     COMMAND_CMD_ALL="cmd_all"
+    COMMAND_RENAME="rename"
     ARGS_TOP_LEVEL="rev-parse --show-toplevel"
     ARGS_COUNT_OBJECT="count-objects"
     ARGS_GC="gc"
@@ -37,9 +38,10 @@ class Git(kp.Plugin):
         repos_path = os.path.join(cache_path, "repos.json")
         if os.path.exists(repos_path):
             with open(repos_path, "r") as repos:
-                self._git_repos = json.load(repos)
+                self._git_repos = json.load(repos, cls=GitRepoDecoder)
         else:
             self._rescan()
+        self.on_catalog()
 
     def on_events(self, flags):
         if flags & kp.Events.PACKCONFIG:
@@ -108,7 +110,6 @@ class Git(kp.Plugin):
                 scan_path["excludes"] = excludes
                 self._scan_paths.append(scan_path)
             elif section.startswith(self.CONFIG_PREFIX_CMD):
-                command = {}
                 cmd = settings.get_stripped("cmd", section)
                 if not cmd:
                     self.err(section, "has no 'cmd'")
@@ -116,14 +117,13 @@ class Git(kp.Plugin):
                 if os.path.isabs(cmd) and not os.path.exists(cmd):
                     self.dbg(section, "cmd is absolute path and does not exist", cmd)
                     continue
-                command["name"] = section.lstrip(self.CONFIG_PREFIX_CMD)
-                command["label"] = settings.get("label", section, section.lstrip(self.CONFIG_PREFIX_CMD))
-                command["cmd"] = cmd.format(git_exe=self._git_path)
-                command["args"] = settings.get("args", section, '"{repo_path}"')
-                command["cwd"] = settings.get("cwd", section, None)
+                command = GitCommand(section.lstrip(self.CONFIG_PREFIX_CMD),
+                                     cmd.format(git_exe=self._git_path),
+                                     settings.get("label", section, section.lstrip(self.CONFIG_PREFIX_CMD)),
+                                     settings.get("args", section, '"{repo_path}"'),
+                                     settings.get("cwd", section, None))
                 self._cmds.append(command)
             elif section.startswith(self.CONFIG_PREFIX_CMD_ALL):
-                command = {}
                 cmd = settings.get_stripped("cmd", section)
                 if not cmd:
                     self.err(section, "has no 'cmd'")
@@ -131,10 +131,10 @@ class Git(kp.Plugin):
                 if os.path.isabs(cmd) and not os.path.exists(cmd):
                     self.dbg(section, "cmd is absolute path and does not exist", cmd)
                     continue
-                command["name"] = section.lstrip(self.CONFIG_PREFIX_CMD_ALL)
-                command["label"] = settings.get("label", section, section.lstrip(self.CONFIG_PREFIX_CMD_ALL))
-                command["cmd"] = cmd.format(git_exe=self._git_path)
-                command["args"] = settings.get("args", section, "")
+                command = GitCommand(section.lstrip(self.CONFIG_PREFIX_CMD_ALL),
+                                     cmd.format(git_exe=self._git_path),
+                                     settings.get("label", section, section.lstrip(self.CONFIG_PREFIX_CMD_ALL)),
+                                     settings.get("args", section, ""))
                 self._cmds_all.append(command)
 
         self.dbg("scan_paths", self._scan_paths)
@@ -142,12 +142,10 @@ class Git(kp.Plugin):
         self.dbg("cmds_all", self._cmds_all)
 
     def _rescan(self):
-        """
-        TODO: Bestehende repos updaten
-        """
         self.dbg("rescan")
         start_time = time.time()
-        self._git_repos = []
+        git_repos = []
+        remove_repos = []
         for scan_path in self._scan_paths:
             start_time_scan_path = time.time()
             scan_path_repos = []
@@ -163,20 +161,32 @@ class Git(kp.Plugin):
 
                     git_repo = self._get_top_level(os.path.dirname(entry))
                     if git_repo:
-                        scan_path_repos.append({
-                            "name": os.path.basename(git_repo),
-                            "path": git_repo,
-                        })
-            self._git_repos.extend(scan_path_repos)
+                        scan_path_repos.append(GitRepo(os.path.basename(git_repo), git_repo))
+            git_repos.extend(scan_path_repos)
             elapsed = time.time() - start_time_scan_path
             self.info('Found {} git repositories in "{}" in {:0.1f} seconds'.format(len(scan_path_repos), scan_path["name"], elapsed))
+
+        self.dbg(git_repos)
+        for repo in self._git_repos:
+            if repo not in git_repos:
+                remove_repos.append(repo)
+        self.dbg(remove_repos)
+        for repo in remove_repos:
+            self._git_repos.remove(repo)
+        for repo in git_repos:
+            if repo not in self._git_repos:
+                self._git_repos.append(repo)
+
         self.dbg(self._git_repos)
-        cache_path = self.get_package_cache_path(True)
-        with open(os.path.join(cache_path, "repos.json"), "w") as repos:
-            json.dump(self._git_repos, repos, indent=4, sort_keys=True)
+        self._save_repos()
 
         elapsed = time.time() - start_time
         self.info("Found {} git repositories in {:0.1f} seconds".format(len(self._git_repos), elapsed))
+
+    def _save_repos(self):
+        cache_path = self.get_package_cache_path(True)
+        with open(os.path.join(cache_path, "repos.json"), "w") as repos:
+            json.dump(self._git_repos, repos, indent=4, sort_keys=True, cls=GitRepoEncoder)
 
     def _get_top_level(self, dir):
         self.dbg("get_top_level", dir)
@@ -206,7 +216,7 @@ class Git(kp.Plugin):
             short_desc="Rescans the configured paths for git repositories",
             target=self.COMMAND_RESCAN,
             args_hint=kp.ItemArgsHint.FORBIDDEN,
-            hit_hint=kp.ItemHitHint.IGNORE,
+            hit_hint=kp.ItemHitHint.KEEPALL,
         ))
         catalog.append(self.create_item(
             category=kp.ItemCategory.KEYWORD,
@@ -214,7 +224,7 @@ class Git(kp.Plugin):
             short_desc="Removes not existing Git Repositories",
             target=self.COMMAND_REMOVE_OLD,
             args_hint=kp.ItemArgsHint.FORBIDDEN,
-            hit_hint=kp.ItemHitHint.IGNORE,
+            hit_hint=kp.ItemHitHint.KEEPALL,
         ))
         catalog.append(self.create_item(
             category=kp.ItemCategory.KEYWORD,
@@ -222,17 +232,17 @@ class Git(kp.Plugin):
             short_desc="Run garbage collection on all Git Repositories",
             target=self.COMMAND_GARBAGE_COLLECTION_ALL,
             args_hint=kp.ItemArgsHint.FORBIDDEN,
-            hit_hint=kp.ItemHitHint.IGNORE,
+            hit_hint=kp.ItemHitHint.KEEPALL,
         ))
         for cmd in self._cmds_all:
             item = self.create_item(
                 category=kp.ItemCategory.KEYWORD,
-                label=cmd["label"],
-                short_desc='Run "{} {}" on all Git Repositories'.format(cmd["cmd"], cmd["args"]),
-                target=self.COMMAND_CMD_ALL + cmd["name"],
+                label=cmd.label,
+                short_desc='Run "{} {}" on all Git Repositories'.format(cmd.cmd, cmd.args),
+                target=self.COMMAND_CMD_ALL + cmd.name,
                 args_hint=kp.ItemArgsHint.FORBIDDEN,
-                hit_hint=kp.ItemHitHint.KEEPALL,
-                data_bag=str(cmd)
+                hit_hint=kp.ItemHitHint.IGNORE,
+                data_bag=repr(cmd)
             )
             catalog.append(item)
 
@@ -243,13 +253,15 @@ class Git(kp.Plugin):
     def _create_repo_items(self):
         items = []
         for git_repo in self._git_repos:
+            self.dbg(git_repo)
             items.append(self.create_item(
                 category=kp.ItemCategory.KEYWORD,
-                label='Git: Repository "{}"'.format(git_repo["name"]),
-                short_desc=git_repo["path"],
-                target=git_repo["path"],
+                label='Git: Repository "{}"'.format(git_repo.name),
+                short_desc=git_repo.path,
+                target=git_repo.path,
                 args_hint=kp.ItemArgsHint.REQUIRED,
                 hit_hint=kp.ItemHitHint.NOARGS,
+                data_bag=git_repo.name
             ))
         return items
 
@@ -258,6 +270,15 @@ class Git(kp.Plugin):
             return
 
         suggestions = []
+
+        if len(items_chain) > 1:
+            rename_item = items_chain[1].clone()
+            rename_item.set_short_desc('{} "{}" to "{}"'.format(rename_item.label(), items_chain[0].data_bag(), user_input))
+            rename_item.set_label('{} "{}"'.format(rename_item.label(), items_chain[0].data_bag()))
+            rename_item.set_args(user_input)
+            suggestions.append(rename_item)
+            self.set_suggestions(suggestions)
+            return
 
         if self._git_bash_path and os.path.exists(self._git_bash_path):
             open_git_bash = self.create_item(
@@ -283,18 +304,29 @@ class Git(kp.Plugin):
         open_explorer.set_args(items_chain[0].target())
         suggestions.append(open_explorer)
 
+        rename_repo = self.create_item(
+            category=kp.ItemCategory.KEYWORD,
+            label="Rename Repository",
+            short_desc="Rename the name of the repository in keypirinha",
+            target=self.COMMAND_RENAME,
+            args_hint=kp.ItemArgsHint.REQUIRED,
+            hit_hint=kp.ItemHitHint.IGNORE,
+            data_bag=items_chain[0].target()
+        )
+        suggestions.append(rename_repo)
+
         for command in self._cmds:
             command_item = self.create_item(
                 category=kp.ItemCategory.KEYWORD,
-                label=command["label"],
-                short_desc=command["cmd"],
-                target=command["cmd"],
+                label=command.label,
+                short_desc=command.cmd,
+                target=command.cmd,
                 args_hint=kp.ItemArgsHint.REQUIRED,
                 hit_hint=kp.ItemHitHint.IGNORE,
-                icon_handle=self.load_icon("@{},0".format(command["cmd"])) if os.path.isabs(command["cmd"]) else None,
-                data_bag=command["cwd"].format(repo_path=items_chain[0].target()) if "cwd" in command and command["cwd"] else None
+                icon_handle=self.load_icon("@{},0".format(command.cmd)) if os.path.isabs(command.cmd) else None,
+                data_bag=command.cwd.format(repo_path=items_chain[0].target()) if command.cwd else None
             )
-            command_item.set_args(command["args"].format(repo_path=items_chain[0].target()))
+            command_item.set_args(command.args.format(repo_path=items_chain[0].target()))
             suggestions.append(command_item)
 
         open_git_bash = self.create_item(
@@ -311,7 +343,7 @@ class Git(kp.Plugin):
         self.set_suggestions(suggestions)
 
     def on_execute(self, item, action):
-        self.dbg(item.target(), item.raw_args())
+        self.dbg("on_execute", item.target(), item.raw_args(), item.data_bag())
 
         if item.target() == self.COMMAND_RESCAN:
             self._rescan()
@@ -322,23 +354,40 @@ class Git(kp.Plugin):
             self._run_gc(item.raw_args())
         elif item.target() == self.COMMAND_GARBAGE_COLLECTION_ALL:
             for repo in self._git_repos:
-                self._run_gc(repo["path"])
+                self._run_gc(repo.path)
         elif item.target() == self.COMMAND_REMOVE_OLD:
-            pass
+            remove_repos = []
+            for repo in self._git_repos:
+                if not os.path.exists(repo.path):
+                    remove_repos.append(repo)
+            self.dbg(remove_repos)
+            for repo in remove_repos:
+                self._git_repos.remove(repo)
+            self._save_repos()
         elif item.target().startswith(self.COMMAND_CMD_ALL):
             cmd = eval(item.data_bag())
             self.dbg(cmd)
+            command = cmd.cmd + " " + cmd.args
             for repo in self._git_repos:
-                command = cmd["cmd"] + " " + cmd["args"]
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                self.info("running", command, "in", repo["path"])
-                proc = subprocess.run(command, cwd=repo["path"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=startupinfo)
+                self.info("running", command, "in", repo.path)
+                proc = subprocess.run(command, cwd=repo.path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=startupinfo)
                 self.info(command, "returned", proc.returncode)
                 if proc.stdout:
                     self.info(proc.stdout.decode())
                 if proc.stderr:
                     self.warn(proc.stderr.decode())
+        elif self.COMMAND_RENAME:
+            new_name = item.raw_args()
+            repo_path = item.data_bag()
+            for repo in self._git_repos:
+                if repo.path == repo_path:
+                    self.info("renaming", repo.name, "to", new_name, repo_path)
+                    repo.name = new_name
+                    break
+            self._save_repos()
+            self.on_catalog()
         else:
             self.dbg("running", item.target(), item.raw_args())
             cwd = item.data_bag()
@@ -375,3 +424,70 @@ class Git(kp.Plugin):
         proc = subprocess.run(command, cwd=repo, stdout=subprocess.PIPE, startupinfo=startupinfo)
         if proc.returncode != 0:
             self.dbg("command returned", proc.returncode, "for", repo)
+
+
+class GitRepo(object):
+    __slots__ = ("name", "path")
+
+    def __init__(self, name, path):
+        self.name = name
+        self.path = path
+
+    def __str__(self):
+        return "{}, {}".format(self.name, self.path)
+
+    def __repr__(self):
+        return "GitRepo(name={}, path={})".format(repr(self.name), repr(self.path))
+
+    def __eq__(self, other):
+        return self.path == other.path
+
+    def __lt__(self, other):
+        return self.path < other.path
+
+    def __le__(self, other):
+        return self.path <= other.path
+
+    def __gt__(self, other):
+        return self.path > other.path
+
+    def __ge__(self, other):
+        return self.path >= other.path
+
+
+class GitRepoEncoder(json.JSONEncoder):
+    def default(self, o):
+        if isinstance(o, GitRepo):
+            return {"name": o.name, "path": o.path}
+        return super().default(o)
+
+
+class GitRepoDecoder(json.JSONDecoder):
+    def __init__(self):
+        super().__init__(object_hook=self.dict_to_obj)
+
+    def dict_to_obj(self, decoded):
+        if "name" in decoded and "path" in decoded:
+            return GitRepo(decoded["name"], decoded["path"])
+        return decoded
+
+
+class GitCommand(object):
+    __slots__ = ("name", "label", "cmd", "args", "cwd")
+
+    def __init__(self, name, cmd, label=None, args=None, cwd=None):
+        self.name = name
+        self.cmd = cmd
+        self.label = label
+        self.args = args
+        self.cwd = cwd
+
+    def __str__(self):
+        return "{}, '{} {}'".format(self.label, self.cmd, self.args)
+
+    def __repr__(self):
+        return "GitCommand(name={}, label={}, cmd={}, args={}, cwd={})".format(repr(self.name),
+                                                                               repr(self.label),
+                                                                               repr(self.cmd),
+                                                                               repr(self.args),
+                                                                               repr(self.cwd))
