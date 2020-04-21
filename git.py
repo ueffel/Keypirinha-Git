@@ -253,7 +253,7 @@ class Git(kp.Plugin):
     def _create_repo_items(self):
         items = []
         for git_repo in self._git_repos:
-            self.dbg(git_repo)
+            # self.dbg(git_repo)
             items.append(self.create_item(
                 category=kp.ItemCategory.KEYWORD,
                 label='Git: Repository "{}"'.format(git_repo.name),
@@ -364,6 +364,16 @@ class Git(kp.Plugin):
             for repo in remove_repos:
                 self._git_repos.remove(repo)
             self._save_repos()
+        elif item.target() == self.COMMAND_RENAME:
+            new_name = item.raw_args()
+            repo_path = item.data_bag()
+            for repo in self._git_repos:
+                if repo.path == repo_path:
+                    self.info("renaming", repo.name, "to", new_name, repo_path)
+                    repo.name = new_name
+                    break
+            self._save_repos()
+            self.on_catalog()
         elif item.target().startswith(self.COMMAND_CMD_ALL):
             cmd = eval(item.data_bag())
             self.dbg(cmd)
@@ -378,16 +388,6 @@ class Git(kp.Plugin):
                     self.info(proc.stdout.decode())
                 if proc.stderr:
                     self.warn(proc.stderr.decode())
-        elif self.COMMAND_RENAME:
-            new_name = item.raw_args()
-            repo_path = item.data_bag()
-            for repo in self._git_repos:
-                if repo.path == repo_path:
-                    self.info("renaming", repo.name, "to", new_name, repo_path)
-                    repo.name = new_name
-                    break
-            self._save_repos()
-            self.on_catalog()
         else:
             self.dbg("running", item.target(), item.raw_args())
             cwd = item.data_bag()
