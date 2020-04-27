@@ -34,13 +34,6 @@ class Git(kp.Plugin):
 
     def on_start(self):
         self._read_config()
-        cache_path = self.get_package_cache_path(False)
-        repos_path = os.path.join(cache_path, "repos.json")
-        if os.path.exists(repos_path):
-            with open(repos_path, "r") as repos:
-                self._git_repos = json.load(repos, cls=GitRepoDecoder)
-        else:
-            self._rescan()
         self.on_catalog()
 
     def on_events(self, flags):
@@ -209,6 +202,14 @@ class Git(kp.Plugin):
         return None
 
     def on_catalog(self):
+        cache_path = self.get_package_cache_path(False)
+        repos_path = os.path.join(cache_path, "repos.json")
+        if os.path.exists(repos_path):
+            with open(repos_path, "r") as repos:
+                self._git_repos = json.load(repos, cls=GitRepoDecoder)
+        else:
+            self._rescan()
+
         catalog = []
         catalog.append(self.create_item(
             category=kp.ItemCategory.KEYWORD,
@@ -229,7 +230,7 @@ class Git(kp.Plugin):
         catalog.append(self.create_item(
             category=kp.ItemCategory.KEYWORD,
             label="Git: Run garbage collection on all Git Repositories",
-            short_desc="Run garbage collection on all Git Repositories",
+            short_desc="Run garbage collection on all Git Repositories if it's needed",
             target=self.COMMAND_GARBAGE_COLLECTION_ALL,
             args_hint=kp.ItemArgsHint.FORBIDDEN,
             hit_hint=kp.ItemHitHint.KEEPALL,
@@ -301,7 +302,7 @@ class Git(kp.Plugin):
             hit_hint=kp.ItemHitHint.IGNORE,
             icon_handle=self.load_icon("@{},0".format("explorer.exe"))
         )
-        open_explorer.set_args(items_chain[0].target())
+        open_explorer.set_args('"{}"'.format(items_chain[0].target()))
         suggestions.append(open_explorer)
 
         rename_repo = self.create_item(
@@ -401,7 +402,13 @@ class Git(kp.Plugin):
         command = '"{}" {}'.format(self._git_path, self.ARGS_COUNT_OBJECT)
         startupinfo = subprocess.STARTUPINFO()
         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        self.info("running", command, "in", repo)
+        if not os.path.exists(repo):
+            self.err(repo, "does not exist")
+            return
+        if not os.path.isdir(repo):
+            self.err(repo, "is not a directory")
+            return
+        self.dbg("running", command, "in", repo)
         proc = subprocess.run(command, cwd=repo, stdout=subprocess.PIPE, startupinfo=startupinfo)
         if proc.returncode != 0:
             self.warn("command returned", proc.returncode, "for", repo)
