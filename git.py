@@ -13,14 +13,10 @@ class Git(kp.Plugin):
     CONFIG_PREFIX_CMD_ALL="cmd_all/"
     COMMAND_RESCAN="rescan"
     COMMAND_REMOVE_OLD="remove_old"
-    COMMAND_GARBAGE_COLLECTION="gc"
-    COMMAND_GARBAGE_COLLECTION_ALL="gc_all"
     COMMAND_OPEN_GIT_BASH="open_git_bash"
     COMMAND_CMD_ALL="cmd_all"
     COMMAND_RENAME="rename"
     ARGS_TOP_LEVEL="rev-parse --show-toplevel"
-    ARGS_COUNT_OBJECT="count-objects"
-    ARGS_GC="gc"
 
     def __init__(self):
         super().__init__()
@@ -114,7 +110,9 @@ class Git(kp.Plugin):
                                      cmd.format(git_exe=self._git_path),
                                      settings.get("label", section, section.lstrip(self.CONFIG_PREFIX_CMD)),
                                      settings.get("args", section, '"{repo_path}"'),
-                                     settings.get("cwd", section, None))
+                                     settings.get("cwd", section, None),
+                                     settings.get_bool("internal", section, False))
+                self.dbg(repr(command))
                 self._cmds.append(command)
             elif section.startswith(self.CONFIG_PREFIX_CMD_ALL):
                 cmd = settings.get_stripped("cmd", section)
@@ -127,7 +125,8 @@ class Git(kp.Plugin):
                 command = GitCommand(section.lstrip(self.CONFIG_PREFIX_CMD_ALL),
                                      cmd.format(git_exe=self._git_path),
                                      settings.get("label", section, section.lstrip(self.CONFIG_PREFIX_CMD_ALL)),
-                                     settings.get("args", section, ""))
+                                     settings.get("args", section, ""),
+                                     internal=settings.get_bool("internal", section, False))
                 self._cmds_all.append(command)
 
         self.dbg("scan_paths", self._scan_paths)
@@ -227,14 +226,6 @@ class Git(kp.Plugin):
             args_hint=kp.ItemArgsHint.FORBIDDEN,
             hit_hint=kp.ItemHitHint.KEEPALL,
         ))
-        catalog.append(self.create_item(
-            category=kp.ItemCategory.KEYWORD,
-            label="Git: Run garbage collection on all Git Repositories",
-            short_desc="Run garbage collection on all Git Repositories if it's needed",
-            target=self.COMMAND_GARBAGE_COLLECTION_ALL,
-            args_hint=kp.ItemArgsHint.FORBIDDEN,
-            hit_hint=kp.ItemHitHint.KEEPALL,
-        ))
         for cmd in self._cmds_all:
             item = self.create_item(
                 category=kp.ItemCategory.KEYWORD,
@@ -242,7 +233,7 @@ class Git(kp.Plugin):
                 short_desc='Run "{} {}" on all Git Repositories'.format(cmd.cmd, cmd.args),
                 target=self.COMMAND_CMD_ALL + cmd.name,
                 args_hint=kp.ItemArgsHint.FORBIDDEN,
-                hit_hint=kp.ItemHitHint.IGNORE,
+                hit_hint=kp.ItemHitHint.KEEPALL,
                 data_bag=repr(cmd)
             )
             catalog.append(item)
@@ -308,7 +299,7 @@ class Git(kp.Plugin):
         rename_repo = self.create_item(
             category=kp.ItemCategory.KEYWORD,
             label="Rename Repository",
-            short_desc="Rename the name of the repository in keypirinha",
+            short_desc="Change the name of the repository in keypirinha",
             target=self.COMMAND_RENAME,
             args_hint=kp.ItemArgsHint.REQUIRED,
             hit_hint=kp.ItemHitHint.IGNORE,
@@ -317,6 +308,7 @@ class Git(kp.Plugin):
         suggestions.append(rename_repo)
 
         for command in self._cmds:
+            command.cwd = command.cwd.format(repo_path=items_chain[0].target()) if command.cwd else None
             command_item = self.create_item(
                 category=kp.ItemCategory.KEYWORD,
                 label=command.label,
@@ -325,21 +317,11 @@ class Git(kp.Plugin):
                 args_hint=kp.ItemArgsHint.REQUIRED,
                 hit_hint=kp.ItemHitHint.IGNORE,
                 icon_handle=self.load_icon("@{},0".format(command.cmd)) if os.path.isabs(command.cmd) else None,
-                data_bag=command.cwd.format(repo_path=items_chain[0].target()) if command.cwd else None
+                data_bag=repr(command)
             )
             command_item.set_args(command.args.format(repo_path=items_chain[0].target()))
+            command_item.set_short_desc("{} {}".format(command.cmd, command_item.raw_args()))
             suggestions.append(command_item)
-
-        open_git_bash = self.create_item(
-            category=kp.ItemCategory.KEYWORD,
-            label="Run garbage collection",
-            short_desc='Runs "git gc"',
-            target=self.COMMAND_GARBAGE_COLLECTION,
-            args_hint=kp.ItemArgsHint.REQUIRED,
-            hit_hint=kp.ItemHitHint.IGNORE,
-        )
-        open_git_bash.set_args(items_chain[0].target())
-        suggestions.append(open_git_bash)
 
         self.set_suggestions(suggestions)
 
@@ -351,11 +333,6 @@ class Git(kp.Plugin):
             self.on_catalog()
         elif item.target() == self.COMMAND_OPEN_GIT_BASH:
             kpu.shell_execute(self._git_bash_path, working_dir=item.raw_args())
-        elif item.target() == self.COMMAND_GARBAGE_COLLECTION:
-            self._run_gc(item.raw_args())
-        elif item.target() == self.COMMAND_GARBAGE_COLLECTION_ALL:
-            for repo in self._git_repos:
-                self._run_gc(repo.path)
         elif item.target() == self.COMMAND_REMOVE_OLD:
             remove_repos = []
             for repo in self._git_repos:
@@ -378,60 +355,35 @@ class Git(kp.Plugin):
         elif item.target().startswith(self.COMMAND_CMD_ALL):
             cmd = eval(item.data_bag())
             self.dbg(cmd)
-            command = cmd.cmd + " " + cmd.args
             for repo in self._git_repos:
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                self.info("running", command, "in", repo.path)
-                proc = subprocess.run(command, cwd=repo.path, stdout=subprocess.PIPE, stderr=subprocess.PIPE, startupinfo=startupinfo)
-                self.info(command, "returned", proc.returncode)
-                if proc.stdout:
-                    self.info(proc.stdout.decode())
-                if proc.stderr:
-                    self.warn(proc.stderr.decode())
+                self._run_command(cmd.cmd, cmd.args, cmd.internal, repo.path)
         else:
-            self.dbg("running", item.target(), item.raw_args())
-            cwd = item.data_bag()
+            cmd = eval(item.data_bag())
+            self._run_command(item.target(), item.raw_args(), cmd.internal, cmd.cwd)
+
+    def _run_command(self, cmd, args, internal, cwd=None):
+        if internal:
+            command = "{} {}".format(cmd, args)
+            startupinfo = subprocess.STARTUPINFO()
+            startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
+            self.info("running", command, "in", cwd)
+            proc = subprocess.Popen(command,
+                                    cwd=cwd,
+                                    stdout=subprocess.PIPE,
+                                    stderr=subprocess.STDOUT,
+                                    universal_newlines=True,
+                                    startupinfo=startupinfo)
+            output, _ = proc.communicate()
+            self.info(command, "returned", proc.returncode)
+            if output:
+                self.info(output)
+        else:
+            self.dbg("running", cmd, args)
             self.dbg(cwd)
             if cwd:
-                kpu.shell_execute(item.target(), item.raw_args(), working_dir=cwd)
+                kpu.shell_execute(cmd, args, working_dir=cwd)
             else:
-                kpu.shell_execute(item.target(), item.raw_args())
-
-    def _run_gc(self, repo):
-        command = '"{}" {}'.format(self._git_path, self.ARGS_COUNT_OBJECT)
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        if not os.path.exists(repo):
-            self.err(repo, "does not exist")
-            return
-        if not os.path.isdir(repo):
-            self.err(repo, "is not a directory")
-            return
-        self.dbg("running", command, "in", repo)
-        proc = subprocess.run(command, cwd=repo, stdout=subprocess.PIPE, startupinfo=startupinfo)
-        if proc.returncode != 0:
-            self.warn("command returned", proc.returncode, "for", repo)
-            return
-        output = os.path.normpath(proc.stdout.decode().rstrip("\r\n"))
-        self.dbg(output)
-        out_split = output.split()
-        loose_kb = 0
-        if len(out_split) <= 2:
-            return
-        loose_kb = int(out_split[2])
-        self.dbg("loose_kb", loose_kb)
-        if loose_kb < 10:
-            self.info("garbage collection not needed")
-            return
-        command = '"{}" {}'.format(self._git_path, self.ARGS_GC)
-        startupinfo = subprocess.STARTUPINFO()
-        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-        self.info("running", command, "in", repo)
-        proc = subprocess.run(command, cwd=repo, stdout=subprocess.PIPE, startupinfo=startupinfo)
-        if proc.returncode != 0:
-            self.dbg("command returned", proc.returncode, "for", repo)
-
+                kpu.shell_execute(cmd, args)
 
 class GitRepo(object):
     __slots__ = ("name", "path")
@@ -480,21 +432,24 @@ class GitRepoDecoder(json.JSONDecoder):
 
 
 class GitCommand(object):
-    __slots__ = ("name", "label", "cmd", "args", "cwd")
+    __slots__ = ("name", "label", "cmd", "args", "cwd", "internal")
 
-    def __init__(self, name, cmd, label=None, args=None, cwd=None):
+    def __init__(self, name, cmd, label=None, args=None, cwd=None, internal=False):
         self.name = name
         self.cmd = cmd
         self.label = label
         self.args = args
         self.cwd = cwd
+        self.internal = internal
 
     def __str__(self):
         return "{}, '{} {}'".format(self.label, self.cmd, self.args)
 
     def __repr__(self):
-        return "GitCommand(name={}, label={}, cmd={}, args={}, cwd={})".format(repr(self.name),
-                                                                               repr(self.label),
-                                                                               repr(self.cmd),
-                                                                               repr(self.args),
-                                                                               repr(self.cwd))
+        return "GitCommand(name={}, label={}, cmd={}, args={}, cwd={}, internal={})" \
+                .format(repr(self.name),
+                        repr(self.label),
+                        repr(self.cmd),
+                        repr(self.args),
+                        repr(self.cwd),
+                        repr(self.internal))
