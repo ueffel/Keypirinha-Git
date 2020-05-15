@@ -284,18 +284,6 @@ class Git(kp.Plugin):
             open_git_bash.set_args(items_chain[0].target())
             suggestions.append(open_git_bash)
 
-        open_explorer = self.create_item(
-            category=kp.ItemCategory.KEYWORD,
-            label="Open Explorer",
-            short_desc="explorer.exe",
-            target="explorer.exe",
-            args_hint=kp.ItemArgsHint.REQUIRED,
-            hit_hint=kp.ItemHitHint.IGNORE,
-            icon_handle=self.load_icon("@{},0".format("explorer.exe"))
-        )
-        open_explorer.set_args('"{}"'.format(items_chain[0].target()))
-        suggestions.append(open_explorer)
-
         rename_repo = self.create_item(
             category=kp.ItemCategory.KEYWORD,
             label="Rename Repository",
@@ -316,7 +304,7 @@ class Git(kp.Plugin):
                 target=command.cmd,
                 args_hint=kp.ItemArgsHint.REQUIRED,
                 hit_hint=kp.ItemHitHint.IGNORE,
-                icon_handle=self.load_icon("@{},0".format(command.cmd)) if os.path.isabs(command.cmd) else None,
+                icon_handle=self.load_icon("@{},0".format(command.cmd)) if command.cmd != self._git_path else None,
                 data_bag=repr(command)
             )
             command_item.set_args(command.args.format(repo_path=items_chain[0].target()))
