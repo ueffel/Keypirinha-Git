@@ -12,6 +12,7 @@ hard drive start using the plugin.
 
 Available commands via default configuration include:
 
+* Open git-bash console in repository
 * Open repository path in Windows Explorer
 * Open repository in Fork / GitExtensions / Sublime Merge (various GUI clients)
 * Running automatic garbage collection on all found repositories (`git gc --auto`)
