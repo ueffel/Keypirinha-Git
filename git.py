@@ -7,16 +7,18 @@ import os
 import json
 import time
 
+
 class Git(kp.Plugin):
-    CONFIG_PREFIX_SCAN_PATH="scan_path/"
-    CONFIG_PREFIX_CMD="cmd/"
-    CONFIG_PREFIX_CMD_ALL="cmd_all/"
-    COMMAND_RESCAN="rescan"
-    COMMAND_REMOVE_OLD="remove_old"
-    COMMAND_OPEN_GIT_BASH="open_git_bash"
-    COMMAND_CMD_ALL="cmd_all"
-    COMMAND_RENAME="rename"
-    ARGS_TOP_LEVEL="rev-parse --show-toplevel"
+    CONFIG_PREFIX_SCAN_PATH = "scan_path/"
+    CONFIG_PREFIX_CMD = "cmd/"
+    CONFIG_PREFIX_CMD_ALL = "cmd_all/"
+    COMMAND_RESCAN = "rescan"
+    COMMAND_REMOVE_OLD = "remove_old"
+    COMMAND_OPEN_GIT_BASH = "open_git_bash"
+    COMMAND_CMD_ALL = "cmd_all"
+    COMMAND_RENAME = "rename"
+    COMMAND_COPY_PATH = "copy_path"
+    ARGS_TOP_LEVEL = "rev-parse --show-toplevel"
 
     def __init__(self):
         super().__init__()
@@ -56,21 +58,27 @@ class Git(kp.Plugin):
         return False
 
     def _try_set_default_icon(self, abs_git_path):
-        check_path = os.path.join(os.path.dirname(os.path.dirname(abs_git_path)), "git-bash.exe")
+        parent = os.path.dirname(os.path.dirname(abs_git_path))
+        check_path = os.path.join(parent, "git-bash.exe")
         self.dbg(check_path)
         if os.path.exists(check_path):
             self._git_bash_path = check_path
             self.set_default_icon(self.load_icon("@{},0".format(self._git_bash_path)))
-        check_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(abs_git_path))), "git-bash.exe")
+            return
+        parent = os.path.dirname(parent)
+        check_path = os.path.join(parent, "git-bash.exe")
         self.dbg(check_path)
         if os.path.exists(check_path):
             self._git_bash_path = check_path
             self.set_default_icon(self.load_icon("@{},0".format(self._git_bash_path)))
-        check_path = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(abs_git_path)))), "git-bash.exe")
+            return
+        parent = os.path.dirname(parent)
+        check_path = os.path.join(parent, "git-bash.exe")
         self.dbg(check_path)
         if os.path.exists(check_path):
             self._git_bash_path = check_path
             self.set_default_icon(self.load_icon("@{},0".format(self._git_bash_path)))
+            return
 
     def _read_config(self):
         self.dbg("Reading config")
@@ -96,7 +104,8 @@ class Git(kp.Plugin):
                 depth = settings.get_int("depth", section, -1)
                 scan_path["depth"] = depth
                 excludes = settings.get_multiline("excludes", section)
-                scan_path["excludes"] = excludes
+                if excludes:
+                    scan_path["excludes"] = excludes
                 self._scan_paths.append(scan_path)
             elif section.startswith(self.CONFIG_PREFIX_CMD):
                 cmd = settings.get_stripped("cmd", section)
@@ -144,12 +153,16 @@ class Git(kp.Plugin):
             for path in scan_path["paths"]:
                 for entry in globex.iglobex(path+"/**/.git/", recursivity=scan_path["depth"], include_hidden=True):
                     filtered = False
-                    for exclude in scan_path["excludes"]:
-                        filter = filefilter.create_filter(exclude)
-                        if filter.match(entry):
-                            filtered = True
-                    if filtered:
-                        continue
+                    if "excludes" in scan_path:
+                        for exclude in scan_path["excludes"]:
+                            filter = filefilter.create_filter(exclude)
+                            if filter.match(entry):
+                                filtered = True
+                                # self.dbg("FILTERED BY:", exclude)
+                                break
+                        if filtered:
+                            # self.dbg("FILTERED:", entry)
+                            continue
 
                     git_repo = self._get_top_level(os.path.dirname(entry))
                     if git_repo:
@@ -295,6 +308,17 @@ class Git(kp.Plugin):
         )
         suggestions.append(rename_repo)
 
+        copy_path = self.create_item(
+            category=kp.ItemCategory.KEYWORD,
+            label="Copy repository path",
+            short_desc="Copies the local directory path to the repository to clipboard",
+            target=self.COMMAND_COPY_PATH,
+            args_hint=kp.ItemArgsHint.FORBIDDEN,
+            hit_hint=kp.ItemHitHint.IGNORE,
+            data_bag=items_chain[0].target()
+        )
+        suggestions.append(copy_path)
+
         for command in self._cmds:
             command.cwd = command.cwd.format(repo_path=items_chain[0].target()) if command.cwd else None
             command_item = self.create_item(
@@ -340,6 +364,9 @@ class Git(kp.Plugin):
                     break
             self._save_repos()
             self.on_catalog()
+        elif item.target() == self.COMMAND_COPY_PATH:
+            repo_path = item.data_bag()
+            kpu.set_clipboard(repo_path)
         elif item.target().startswith(self.COMMAND_CMD_ALL):
             cmd = eval(item.data_bag())
             self.dbg(cmd)
@@ -372,6 +399,7 @@ class Git(kp.Plugin):
                 kpu.shell_execute(cmd, args, working_dir=cwd)
             else:
                 kpu.shell_execute(cmd, args)
+
 
 class GitRepo(object):
     __slots__ = ("name", "path")
@@ -435,9 +463,9 @@ class GitCommand(object):
 
     def __repr__(self):
         return "GitCommand(name={}, label={}, cmd={}, args={}, cwd={}, internal={})" \
-                .format(repr(self.name),
-                        repr(self.label),
-                        repr(self.cmd),
-                        repr(self.args),
-                        repr(self.cwd),
-                        repr(self.internal))
+            .format(repr(self.name),
+                    repr(self.label),
+                    repr(self.cmd),
+                    repr(self.args),
+                    repr(self.cwd),
+                    repr(self.internal))
