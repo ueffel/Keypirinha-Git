@@ -22,7 +22,6 @@ class Git(kp.Plugin):
 
     def __init__(self):
         super().__init__()
-        self._debug = True
         self._git_path = "git"
         self._git_bash_path = None
         self._scan_paths = []
