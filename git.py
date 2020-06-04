@@ -168,7 +168,9 @@ class Git(kp.Plugin):
                         scan_path_repos.append(GitRepo(os.path.basename(git_repo), git_repo))
             git_repos.extend(scan_path_repos)
             elapsed = time.time() - start_time_scan_path
-            self.info('Found {} git repositories in "{}" in {:0.1f} seconds'.format(len(scan_path_repos), scan_path["name"], elapsed))
+            self.info('Found {} git repositories in "{}" in {:0.1f} seconds'.format(len(scan_path_repos),
+                                                                                    scan_path["name"],
+                                                                                    elapsed))
 
         self.dbg(git_repos)
         for repo in self._git_repos:
@@ -277,7 +279,9 @@ class Git(kp.Plugin):
 
         if len(items_chain) > 1:
             rename_item = items_chain[1].clone()
-            rename_item.set_short_desc('{} "{}" to "{}"'.format(rename_item.label(), items_chain[0].data_bag(), user_input))
+            rename_item.set_short_desc('{} "{}" to "{}"'.format(rename_item.label(),
+                                                                items_chain[0].data_bag(),
+                                                                user_input))
             rename_item.set_label('{} "{}"'.format(rename_item.label(), items_chain[0].data_bag()))
             rename_item.set_args(user_input)
             suggestions.append(rename_item)
@@ -310,7 +314,7 @@ class Git(kp.Plugin):
         copy_path = self.create_item(
             category=kp.ItemCategory.KEYWORD,
             label="Copy repository path",
-            short_desc="Copies the local directory path to the repository to clipboard",
+            short_desc="Copies the local directory path to the repository into clipboard",
             target=self.COMMAND_COPY_PATH,
             args_hint=kp.ItemArgsHint.FORBIDDEN,
             hit_hint=kp.ItemHitHint.IGNORE,
@@ -343,7 +347,7 @@ class Git(kp.Plugin):
             self._rescan()
             self.on_catalog()
         elif item.target() == self.COMMAND_OPEN_GIT_BASH:
-            kpu.shell_execute(self._git_bash_path, working_dir=item.raw_args())
+            self._run_command(self._git_bash_path, None, False, item.raw_args())
         elif item.target() == self.COMMAND_REMOVE_OLD:
             remove_repos = []
             for repo in self._git_repos:
@@ -376,6 +380,10 @@ class Git(kp.Plugin):
             self._run_command(item.target(), item.raw_args(), cmd.internal, cmd.cwd)
 
     def _run_command(self, cmd, args, internal, cwd=None):
+        if cwd and not os.path.isdir(cwd):
+            self.warn(cwd, " does not exist.")
+            return
+
         if internal:
             command = "{} {}".format(cmd, args)
             startupinfo = subprocess.STARTUPINFO()
