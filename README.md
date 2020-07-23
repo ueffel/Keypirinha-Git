@@ -15,6 +15,8 @@ Available commands via default configuration include:
 * Open git-bash console in repository
 * Open repository path in Windows Explorer
 * Open repository in Fork / GitExtensions / Sublime Merge (various GUI clients)
+* Opening special files like Visual Studio Solutions from a repository (via
+  configurable search patterns)
 * Running automatic garbage collection on all found repositories (`git gc --auto`)
 * more commands you can configure yourself
 

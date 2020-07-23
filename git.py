@@ -12,6 +12,7 @@ class Git(kp.Plugin):
     CONFIG_PREFIX_SCAN_PATH = "scan_path/"
     CONFIG_PREFIX_CMD = "cmd/"
     CONFIG_PREFIX_CMD_ALL = "cmd_all/"
+    CONFIG_PREFIX_FILE = "file/"
     COMMAND_RESCAN = "rescan"
     COMMAND_REMOVE_OLD = "remove_old"
     COMMAND_OPEN_GIT_BASH = "open_git_bash"
@@ -27,7 +28,9 @@ class Git(kp.Plugin):
         self._scan_paths = []
         self._cmds = []
         self._cmds_all = []
+        self._file_patterns = []
         self._git_repos = []
+        self._files = None
 
     def on_start(self):
         self._read_config()
@@ -92,6 +95,7 @@ class Git(kp.Plugin):
         self._scan_paths = []
         self._cmds = []
         self._cmds_all = []
+        self._file_patterns = []
         for section in settings.sections():
             if section.startswith(self.CONFIG_PREFIX_SCAN_PATH):
                 keys = settings.keys(section)
@@ -136,10 +140,17 @@ class Git(kp.Plugin):
                                      settings.get("args", section, ""),
                                      internal=settings.get_bool("internal", section, False))
                 self._cmds_all.append(command)
+            elif section.startswith(self.CONFIG_PREFIX_FILE):
+                pattern = settings.get_multiline("pattern", section)
+                if not pattern:
+                    self.err(section, "has no 'pattern'")
+                    continue
+                self._file_patterns.extend(pattern)
 
         self.dbg("scan_paths", self._scan_paths)
         self.dbg("cmds", self._cmds)
         self.dbg("cmds_all", self._cmds_all)
+        self.dbg("file_patterns", self._file_patterns)
 
     def _rescan(self):
         self.dbg("rescan")
@@ -271,8 +282,13 @@ class Git(kp.Plugin):
             ))
         return items
 
+    def _cleanup(self):
+        self._files = None
+
     def on_suggest(self, user_input, items_chain):
         if not items_chain:
+            if self._files is not None:
+                self._cleanup()
             return
 
         suggestions = []
@@ -338,7 +354,32 @@ class Git(kp.Plugin):
             command_item.set_short_desc("{} {}".format(command.cmd, command_item.raw_args()))
             suggestions.append(command_item)
 
+        if self._files is None:
+            self._files = []
+            if os.path.exists(items_chain[0].target()):
+                for pattern in self._file_patterns:
+                    self.dbg(items_chain[0].target() + "/" + pattern)
+                    files = globex.iglobex(items_chain[0].target() + "/" + pattern, recursivity=True)
+                    self._files.extend(files)
+
+        for file in self._files:
+            command = GitCommand("",
+                                 file.path,
+                                 label=os.path.relpath(file.path, items_chain[0].target()))
+            suggestions.append(self.create_item(
+                category=kp.ItemCategory.FILE,
+                label='Open "{}"'.format(command.label),
+                short_desc="",
+                target=command.cmd,
+                args_hint=kp.ItemArgsHint.FORBIDDEN,
+                hit_hint=kp.ItemHitHint.IGNORE,
+                data_bag=repr(command)
+            ))
+
         self.set_suggestions(suggestions)
+
+    def on_deactivated(self):
+        self._cleanup()
 
     def on_execute(self, item, action):
         self.dbg("on_execute", item.target(), item.raw_args(), item.data_bag())
