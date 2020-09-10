@@ -398,6 +398,7 @@ class Git(kp.Plugin):
             for repo in remove_repos:
                 self._git_repos.remove(repo)
             self._save_repos()
+            self.on_catalog()
         elif item.target() == self.COMMAND_RENAME:
             new_name = item.raw_args()
             repo_path = item.data_bag()
