@@ -152,6 +152,24 @@ class Git(kp.Plugin):
         self.dbg("cmds_all", self._cmds_all)
         self.dbg("file_patterns", self._file_patterns)
 
+    def _scan_path(self, path, depth, max_depth, excludes=[]):
+        if max_depth >= 0 and depth-1 > max_depth:
+            return
+        for exclude in excludes:
+            filter = filefilter.create_filter(exclude)
+            if filter.match(path):
+                return
+
+        for dir in os.listdir(path):
+            dir_path = os.path.join(path, dir)
+            if not os.path.isdir(dir_path):
+                continue
+            if dir == ".git":
+                yield dir_path
+                break
+            for dir2 in self._scan_path(dir_path, depth+1, max_depth, excludes):
+                yield dir2
+
     def _rescan(self):
         self.dbg("rescan")
         start_time = time.time()
@@ -161,19 +179,11 @@ class Git(kp.Plugin):
             start_time_scan_path = time.time()
             scan_path_repos = []
             for path in scan_path["paths"]:
-                for entry in globex.iglobex(path+"/**/.git/", recursivity=scan_path["depth"], include_hidden=True):
-                    filtered = False
-                    if "excludes" in scan_path:
-                        for exclude in scan_path["excludes"]:
-                            filter = filefilter.create_filter(exclude)
-                            if filter.match(entry):
-                                filtered = True
-                                # self.dbg("FILTERED BY:", exclude)
-                                break
-                        if filtered:
-                            # self.dbg("FILTERED:", entry)
-                            continue
-
+                if "excludes" in scan_path:
+                    excludes = scan_path["excludes"]
+                else:
+                    excludes =[]
+                for entry in self._scan_path(path, 0, scan_path["depth"], excludes):
                     git_repo = self._get_top_level(os.path.dirname(entry))
                     if git_repo:
                         scan_path_repos.append(GitRepo(os.path.basename(git_repo), git_repo))
