@@ -34,7 +34,6 @@ class Git(kp.Plugin):
 
     def on_start(self):
         self._read_config()
-        self.on_catalog()
 
     def on_events(self, flags):
         if flags & kp.Events.PACKCONFIG:
