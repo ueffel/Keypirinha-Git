@@ -424,7 +424,10 @@ class Git(kp.Plugin):
         elif item.target().startswith(self.COMMAND_CMD_ALL):
             cmd = eval(item.data_bag())
             self.dbg(cmd)
+            args = cmd.args
             for repo in self._git_repos:
+                cmd.args = args.format(repo_path=repo.path)
+                self.dbg(cmd)
                 self._run_command(cmd.cmd, cmd.args, cmd.internal, repo.path)
         else:
             cmd = eval(item.data_bag())
