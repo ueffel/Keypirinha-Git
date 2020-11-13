@@ -353,7 +353,7 @@ class Git(kp.Plugin):
                 category=kp.ItemCategory.KEYWORD,
                 label=command.label,
                 short_desc=command.cmd,
-                target=command.cmd,
+                target=command.name,
                 args_hint=kp.ItemArgsHint.REQUIRED,
                 hit_hint=kp.ItemHitHint.IGNORE,
                 icon_handle=self.load_icon("@{},0".format(command.cmd)) if command.cmd != self._git_path else None,
@@ -431,7 +431,7 @@ class Git(kp.Plugin):
                 self._run_command(cmd.cmd, cmd.args, cmd.internal, repo.path)
         else:
             cmd = eval(item.data_bag())
-            self._run_command(item.target(), item.raw_args(), cmd.internal, cmd.cwd)
+            self._run_command(cmd.cmd, item.raw_args(), cmd.internal, cmd.cwd)
 
     def _run_command(self, cmd, args, internal, cwd=None):
         if cwd and not os.path.isdir(cwd):
