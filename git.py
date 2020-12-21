@@ -170,11 +170,12 @@ class Git(kp.Plugin):
                 yield dir2
 
     def _rescan(self):
-        self.dbg("rescan")
+        self.info("Rescanning", len(self._scan_paths), "scan paths for repositories...")
         start_time = time.time()
         git_repos = []
         remove_repos = []
         for scan_path in self._scan_paths:
+            self.info("Rescanning", scan_path["name"], "with", len(scan_path["paths"]), "paths for repositories...")
             start_time_scan_path = time.time()
             scan_path_repos = []
             for path in scan_path["paths"]:
@@ -429,6 +430,8 @@ class Git(kp.Plugin):
                 cmd.args = args.format(repo_path=repo.path)
                 self.dbg(cmd)
                 self._run_command(cmd.cmd, cmd.args, cmd.internal, repo.path)
+        elif item.category() == kp.ItemCategory.FILE:
+            kpu.execute_default_action(self, item, action)
         else:
             cmd = eval(item.data_bag())
             self._run_command(cmd.cmd, item.raw_args(), cmd.internal, cmd.cwd)
@@ -450,9 +453,9 @@ class Git(kp.Plugin):
                                     universal_newlines=True,
                                     startupinfo=startupinfo)
             output, _ = proc.communicate()
-            self.info(command, "returned", proc.returncode)
             if output:
                 self.info(output)
+            self.info(command, "returned", proc.returncode)
         else:
             self.dbg("running", cmd, args)
             self.dbg(cwd)
