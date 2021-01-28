@@ -6,6 +6,7 @@ import subprocess
 import os
 import json
 import time
+import copy
 
 
 class Git(kp.Plugin):
@@ -186,7 +187,7 @@ class Git(kp.Plugin):
                 for entry in self._scan_path(path, 0, scan_path["depth"], excludes):
                     git_repo = self._get_top_level(os.path.dirname(entry))
                     if git_repo:
-                        scan_path_repos.append(GitRepo(os.path.basename(git_repo), git_repo))
+                        scan_path_repos.append(GitRepo("{}: {}".format(scan_path["name"], os.path.basename(git_repo)), git_repo))
             git_repos.extend(scan_path_repos)
             elapsed = time.time() - start_time_scan_path
             self.info('Found {} git repositories in "{}" in {:0.1f} seconds'.format(len(scan_path_repos),
@@ -349,19 +350,20 @@ class Git(kp.Plugin):
         suggestions.append(copy_path)
 
         for command in self._cmds:
-            command.cwd = command.cwd.format(repo_path=items_chain[0].target()) if command.cwd else None
+            copy_cmd = copy.copy(command)
+            copy_cmd.cwd = copy_cmd.cwd.format(repo_path=items_chain[0].target()) if copy_cmd.cwd else None
             command_item = self.create_item(
                 category=kp.ItemCategory.KEYWORD,
-                label=command.label,
-                short_desc=command.cmd,
-                target=command.name,
+                label=copy_cmd.label,
+                short_desc=copy_cmd.cmd,
+                target=copy_cmd.name + items_chain[0].target(),
                 args_hint=kp.ItemArgsHint.REQUIRED,
                 hit_hint=kp.ItemHitHint.IGNORE,
-                icon_handle=self.load_icon("@{},0".format(command.cmd)) if command.cmd != self._git_path else None,
-                data_bag=repr(command)
+                icon_handle=self.load_icon("@{},0".format(copy_cmd.cmd)) if copy_cmd.cmd != self._git_path else None,
+                data_bag=repr(copy_cmd)
             )
-            command_item.set_args(command.args.format(repo_path=items_chain[0].target()))
-            command_item.set_short_desc("{} {}".format(command.cmd, command_item.raw_args()))
+            command_item.set_args(copy_cmd.args.format(repo_path=items_chain[0].target()))
+            command_item.set_short_desc("{} {}".format(copy_cmd.cmd, command_item.raw_args()))
             suggestions.append(command_item)
 
         if self._files is None:
@@ -404,11 +406,11 @@ class Git(kp.Plugin):
             for repo in self._git_repos:
                 if not os.path.exists(repo.path):
                     remove_repos.append(repo)
-            self.dbg(remove_repos)
             for repo in remove_repos:
                 self._git_repos.remove(repo)
             self._save_repos()
             self.on_catalog()
+            self.info("Removed", len(remove_repos), "repositories that don't exist anymore.")
         elif item.target() == self.COMMAND_RENAME:
             new_name = item.raw_args()
             repo_path = item.data_bag()
