@@ -199,17 +199,21 @@ class Git(kp.Plugin):
             if repo not in git_repos:
                 remove_repos.append(repo)
         self.dbg(remove_repos)
+        removed = 0
         for repo in remove_repos:
             self._git_repos.remove(repo)
+            removed += 1
+        added = 0
         for repo in git_repos:
             if repo not in self._git_repos:
                 self._git_repos.append(repo)
+                added += 1
 
         self.dbg(self._git_repos)
         self._save_repos()
 
         elapsed = time.time() - start_time
-        self.info("Found {} git repositories in {:0.1f} seconds".format(len(self._git_repos), elapsed))
+        self.info("Found {} git repositories in {:0.1f} seconds ({} added, {} removed)".format(len(self._git_repos), elapsed, added, removed))
 
     def _save_repos(self):
         cache_path = self.get_package_cache_path(True)
@@ -380,7 +384,7 @@ class Git(kp.Plugin):
                                  label=os.path.relpath(file.path, items_chain[0].target()))
             suggestions.append(self.create_item(
                 category=kp.ItemCategory.FILE,
-                label='Open "{}"'.format(command.label),
+                label=command.label,
                 short_desc="",
                 target=command.cmd,
                 args_hint=kp.ItemArgsHint.FORBIDDEN,
