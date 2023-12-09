@@ -103,7 +103,17 @@ class Git(kp.Plugin):
                 if "paths" not in keys:
                     continue
                 scan_path["name"] = section.lstrip(self.CONFIG_PREFIX_SCAN_PATH)
-                scan_path["paths"] = settings.get_multiline("paths", section)
+
+                paths = []
+                paths_val = settings.get_multiline("paths", section)
+                for path_val in paths_val:
+                    # in case of enviroment variables with multiple path values
+                    if ";" in path_val:
+                        paths.extend(path for path in path_val.split(";") if path)
+                    else:
+                        paths.append(path_val)
+                scan_path["paths"] = paths
+
                 depth = settings.get_int("depth", section, -1)
                 scan_path["depth"] = depth
                 excludes = settings.get_multiline("excludes", section)
@@ -183,7 +193,7 @@ class Git(kp.Plugin):
                 if "excludes" in scan_path:
                     excludes = scan_path["excludes"]
                 else:
-                    excludes =[]
+                    excludes = []
                 for entry in self._scan_path(path, 0, scan_path["depth"], excludes):
                     git_repo = self._get_top_level(os.path.dirname(entry))
                     if git_repo:
