@@ -335,10 +335,11 @@ class Git(kp.Plugin):
                 label="Open Git-Bash",
                 short_desc=self._git_bash_path,
                 target=self.COMMAND_OPEN_GIT_BASH,
-                args_hint=kp.ItemArgsHint.REQUIRED,
+                args_hint=kp.ItemArgsHint.ACCEPTED,
                 hit_hint=kp.ItemHitHint.IGNORE,
+                data_bag=items_chain[0].target(),
+                loop_on_suggest=True,
             )
-            open_git_bash.set_args(items_chain[0].target())
             suggestions.append(open_git_bash)
 
         rename_repo = self.create_item(
@@ -371,10 +372,11 @@ class Git(kp.Plugin):
                 label=copy_cmd.label,
                 short_desc=copy_cmd.cmd,
                 target=copy_cmd.name + items_chain[0].target(),
-                args_hint=kp.ItemArgsHint.REQUIRED,
+                args_hint=kp.ItemArgsHint.ACCEPTED,
                 hit_hint=kp.ItemHitHint.IGNORE,
                 icon_handle=self.load_icon("@{},0".format(copy_cmd.cmd)) if copy_cmd.cmd != self._git_path else None,
-                data_bag=repr(copy_cmd)
+                data_bag=repr(copy_cmd),
+                loop_on_suggest=True,
             )
             command_item.set_args(copy_cmd.args.format(repo_path=items_chain[0].target()))
             command_item.set_short_desc("{} {}".format(copy_cmd.cmd, command_item.raw_args()))
@@ -414,7 +416,7 @@ class Git(kp.Plugin):
             self._rescan()
             self.on_catalog()
         elif item.target() == self.COMMAND_OPEN_GIT_BASH:
-            self._run_command(self._git_bash_path, None, False, item.raw_args())
+            self._run_command(self._git_bash_path, None, False, item.data_bag())
         elif item.target() == self.COMMAND_REMOVE_OLD:
             remove_repos = []
             for repo in self._git_repos:
