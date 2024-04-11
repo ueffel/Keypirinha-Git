@@ -20,7 +20,7 @@ Available commands via default configuration include:
 * Running automatic garbage collection on all found repositories (`git gc --auto`)
 * more commands you can configure yourself
 
-All item are prefixed with `Git:`
+All items are prefixed with `Git:`
 
 ## Installation
 
