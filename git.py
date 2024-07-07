@@ -319,13 +319,25 @@ class Git(kp.Plugin):
         suggestions = []
 
         if len(items_chain) > 1:
-            rename_item = items_chain[1].clone()
-            rename_item.set_short_desc('{} "{}" to "{}"'.format(rename_item.label(),
-                                                                items_chain[0].data_bag(),
-                                                                user_input))
-            rename_item.set_label('{} "{}"'.format(rename_item.label(), items_chain[0].data_bag()))
-            rename_item.set_args(user_input)
-            suggestions.append(rename_item)
+            new_item = self.create_item(
+                category=items_chain[1].category() if items_chain[1].category() != kp.ItemCategory.CMDLINE
+                else kp.ItemCategory.FILE,
+                label=items_chain[1].label(),
+                short_desc=items_chain[1].short_desc(),
+                target=items_chain[1].target() if items_chain[1].category() != kp.ItemCategory.CMDLINE
+                else eval(items_chain[1].data_bag()).cmd,
+                args_hint=items_chain[1].args_hint() if len(items_chain) <= 2 else kp.ItemArgsHint.FORBIDDEN,
+                hit_hint=items_chain[1].hit_hint(),
+                data_bag=items_chain[1].data_bag(),
+                loop_on_suggest=items_chain[1].loop_on_suggest() if len(items_chain) <= 1 else False
+            )
+            if items_chain[1].target() == self.COMMAND_RENAME:
+                new_item.set_short_desc('{} "{}" to "{}"'.format(new_item.label(),
+                                                                 items_chain[0].data_bag(),
+                                                                 user_input))
+            if user_input:
+                new_item.set_args(user_input)
+            suggestions.append(new_item)
             self.set_suggestions(suggestions)
             return
 
@@ -349,8 +361,10 @@ class Git(kp.Plugin):
             target=self.COMMAND_RENAME,
             args_hint=kp.ItemArgsHint.REQUIRED,
             hit_hint=kp.ItemHitHint.IGNORE,
-            data_bag=items_chain[0].target()
+            data_bag=items_chain[0].target(),
+            loop_on_suggest=True
         )
+        rename_repo.set_args(items_chain[0].data_bag())
         suggestions.append(rename_repo)
 
         copy_path = self.create_item(
@@ -368,7 +382,7 @@ class Git(kp.Plugin):
             copy_cmd = copy.copy(command)
             copy_cmd.cwd = copy_cmd.cwd.format(repo_path=items_chain[0].target()) if copy_cmd.cwd else None
             command_item = self.create_item(
-                category=kp.ItemCategory.KEYWORD,
+                category=kp.ItemCategory.CMDLINE,
                 label=copy_cmd.label,
                 short_desc=copy_cmd.cmd,
                 target=copy_cmd.name + items_chain[0].target(),
@@ -449,7 +463,15 @@ class Git(kp.Plugin):
                 self.dbg(cmd)
                 self._run_command(cmd.cmd, cmd.args, cmd.internal, repo.path)
         elif item.category() == kp.ItemCategory.FILE:
-            kpu.execute_default_action(self, item, action)
+            self.info("execute file", action, item)
+            if action is None or action.name() == "open":
+                cmd = eval(item.data_bag())
+                kpu.shell_execute(cmd.cmd, args=item.raw_args(), working_dir=cmd.cwd)
+            elif action.name() == "runas":
+                cmd = eval(item.data_bag())
+                kpu.shell_execute(cmd.cmd, args=item.raw_args(), working_dir=cmd.cwd, verb="runas")
+            else:
+                kpu.execute_default_action(self, item, action)
         else:
             cmd = eval(item.data_bag())
             self._run_command(cmd.cmd, item.raw_args(), cmd.internal, cmd.cwd)
